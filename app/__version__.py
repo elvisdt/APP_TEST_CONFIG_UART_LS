@@ -1,0 +1,6 @@
+__title__       = "Alarm Configurator-Linseg"
+__version__     = "1.0.0"
+__author__      = "elvisdt - LABOTEC"
+__description__ = "Aplicación de configuración y diagnóstico para módulos QC1"
+__license__     = "Propietario"
+__copyright__   = "2024-2025 elvisdt - LABOTEC"
