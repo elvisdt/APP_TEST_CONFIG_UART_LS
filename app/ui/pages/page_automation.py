@@ -1,53 +1,34 @@
 ﻿from __future__ import annotations
-
-from typing import cast
-
+from typing import cast, List, Dict, Any
 from PyQt6 import QtCore, QtWidgets
-
 from app.ui.widgets.card import Card
 
 
 class PageAutomation(QtWidgets.QWidget):
-    """Configura entradas, salidas y ventanas horarias del equipo."""
+    """
+    Configura salidas (Duración, Modo, Auto-restaurar)
+    y disparadores automáticos (RF1..RF4, Llamada).
 
-    sig_apply_inputs = QtCore.pyqtSignal(list)
-    sig_apply_outputs = QtCore.pyqtSignal(list)
-    sig_apply_schedules = QtCore.pyqtSignal(list)
-    sig_trigger_output = QtCore.pyqtSignal(str, str)
+    - No hay "Función"
+    - No hay "Schedule"
+    - Distribución horizontal por porcentajes y responsive
+    """
 
-    _INPUT_NAMES = ["IN1", "IN2", "IN3", "IN4", "IN5", "IN6"]
-    _OUTPUT_NAMES = ["OUT1", "OUT2", "OUT3", "OUT4"]
+    # Señales hacia backend/controlador
+    sig_apply_outputs = QtCore.pyqtSignal(list)          # list[dict]: configuración de salidas
+    sig_apply_triggers = QtCore.pyqtSignal(list)         # list[dict]: configuración de disparadores
+    sig_import_export = QtCore.pyqtSignal(str, object)   # ("import"|"export", payload)
+    sig_trigger_output = QtCore.pyqtSignal(str, str)     # (name, "Activar"|"Liberar")
 
-    _INPUT_FUNCTIONS = [
-        "Armado/Desarmado",
-        "Panico",
-        "Intrusion",
-        "Bajo voltaje",
-        "Tamper",
-        "Entrada libre",
-    ]
+    _OUTPUT_NAMES: List[str] = ["ZN1", "SIR", "OUT1", "OUT2"]
+    _OUTPUT_MODES: List[str] = ["Pulso", "Sostenido", "Seguimiento de evento"]
+    _TRIGGER_COLUMNS: List[str] = ["RF1", "RF2", "RF3", "RF4", "Llamada"]
 
-    _OUTPUT_FUNCTIONS = [
-        "Sirena",
-        "Estrobo",
-        "Mensaje de voz",
-        "Rele auxiliar",
-        "Reporte MQTT",
-    ]
-
-    _OUTPUT_MODES = [
-        "Pulso",
-        "Sostenido",
-        "Seguimiento de evento",
-    ]
-
-    _SCHEDULE_DAY_OPTIONS = [
-        "Siempre",
-        "Lunes a viernes",
-        "Sabados",
-        "Domingos",
-        "Personalizado",
-    ]
+    # Índices de columnas (salidas)
+    COL_NAME = 0
+    COL_DUR = 1
+    COL_MODE = 2
+    COL_AUTORST = 3
 
     def __init__(self) -> None:
         super().__init__()
@@ -55,154 +36,79 @@ class PageAutomation(QtWidgets.QWidget):
         root.setContentsMargins(16, 16, 16, 16)
         root.setSpacing(12)
 
-        self._input_rows: list[dict[str, QtWidgets.QWidget]] = []
-        self._output_rows: list[dict[str, QtWidgets.QWidget]] = []
+        self._dirty = False
+        self._output_rows: List[Dict[str, QtWidgets.QWidget]] = []
+        self._trigger_rows: List[Dict[str, QtWidgets.QWidget]] = []
 
-        self._build_inputs_card(root)
+        # Tarjetas
         self._build_outputs_card(root)
-        self._build_schedules_card(root)
+        self._build_triggers_card(root)
+        self._build_toolbar(root)
 
-        self.reset_inputs()
+        # Defaults
         self.reset_outputs()
-        self.reset_schedules()
+        self.reset_triggers()
 
-    # ------------------------------------------------------------------
-    def _build_inputs_card(self, root: QtWidgets.QVBoxLayout) -> None:
-        card = Card("Entradas digitales")
+        # Event filters para recalcular anchos al redimensionar
+        self.tbl_outputs.viewport().installEventFilter(self)
+        self.tbl_triggers.viewport().installEventFilter(self)
+        self._autosize_outputs_columns()
+        self._autosize_triggers_columns()
 
-        self.tbl_inputs = QtWidgets.QTableWidget(len(self._INPUT_NAMES), 5)
-        self.tbl_inputs.setHorizontalHeaderLabels([
-            "Entrada",
-            "Funcion",
-            "Zona",
-            "Retardo (s)",
-            "Habilitada",
-        ])
-        self.tbl_inputs.verticalHeader().setVisible(False)
-        self.tbl_inputs.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.tbl_inputs.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.NoSelection)
-        self.tbl_inputs.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
-
-        header = self.tbl_inputs.horizontalHeader()
-        header.setStretchLastSection(True)
-        header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(3, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(4, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-
-        for row, name in enumerate(self._INPUT_NAMES):
-            item = QtWidgets.QTableWidgetItem(name)
-            item.setFlags(QtCore.Qt.ItemFlag.ItemIsEnabled)
-            self.tbl_inputs.setItem(row, 0, item)
-
-            combo = QtWidgets.QComboBox()
-            combo.addItems(self._INPUT_FUNCTIONS)
-
-            zone = QtWidgets.QLineEdit()
-            zone.setPlaceholderText("Zona / etiqueta")
-
-            delay = QtWidgets.QSpinBox()
-            delay.setRange(0, 600)
-            delay.setSingleStep(5)
-            delay.setValue(0)
-
-            enabled = QtWidgets.QCheckBox()
-            enabled.setChecked(True)
-            enabled.setTristate(False)
-            enabled.setStyleSheet("margin-left:12px;")
-
-            self.tbl_inputs.setCellWidget(row, 1, combo)
-            self.tbl_inputs.setCellWidget(row, 2, zone)
-            self.tbl_inputs.setCellWidget(row, 3, delay)
-            self.tbl_inputs.setCellWidget(row, 4, enabled)
-
-            self._input_rows.append({
-                "function": combo,
-                "zone": zone,
-                "delay": delay,
-                "enabled": enabled,
-            })
-
-            self.tbl_inputs.setRowHeight(row, 36)
-
-        card.body.addWidget(self.tbl_inputs)
-
-        buttons = QtWidgets.QHBoxLayout()
-        buttons.addStretch(1)
-        self.btn_inputs_reset = QtWidgets.QPushButton("Restaurar predeterminado")
-        self.btn_inputs_reset.setProperty("ghost", True)
-        self.btn_inputs_apply = QtWidgets.QPushButton("Aplicar entradas")
-        self.btn_inputs_apply.setProperty("primary", True)
-        buttons.addWidget(self.btn_inputs_reset)
-        buttons.addWidget(self.btn_inputs_apply)
-        card.body.addLayout(buttons)
-
-        root.addWidget(card)
-
-        self.btn_inputs_reset.clicked.connect(self.reset_inputs)
-        self.btn_inputs_apply.clicked.connect(lambda: self.sig_apply_inputs.emit(self.inputs()))
-
+    # ──────────────────────────────────────────────────────────────
+    #  Card: Salidas / Actuadores
+    # ──────────────────────────────────────────────────────────────
     def _build_outputs_card(self, root: QtWidgets.QVBoxLayout) -> None:
         card = Card("Salidas / Actuadores")
 
-        self.tbl_outputs = QtWidgets.QTableWidget(len(self._OUTPUT_NAMES), 5)
-        self.tbl_outputs.setHorizontalHeaderLabels([
-            "Salida",
-            "Funcion",
-            "Duracion (s)",
-            "Modo",
-            "Auto-restaurar",
-        ])
+        # 4 columnas: Salida | Duración | Modo | Auto-restaurar
+        self.tbl_outputs = QtWidgets.QTableWidget(len(self._OUTPUT_NAMES), 4)
+        self.tbl_outputs.setHorizontalHeaderLabels(["Salida", "Duración (s)", "Modo", "Auto-restaurar"])
         self.tbl_outputs.verticalHeader().setVisible(False)
         self.tbl_outputs.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tbl_outputs.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.NoSelection)
         self.tbl_outputs.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
+        self.tbl_outputs.setWordWrap(False)
+        self.tbl_outputs.setSizeAdjustPolicy(QtWidgets.QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
 
         header = self.tbl_outputs.horizontalHeader()
-        header.setStretchLastSection(True)
-        header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QtWidgets.QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(4, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+        header.setStretchLastSection(False)
+        header.setMinimumSectionSize(80)
+        header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Interactive)  # control manual
 
         for row, name in enumerate(self._OUTPUT_NAMES):
+            # Columna: Nombre
             item = QtWidgets.QTableWidgetItem(name)
             item.setFlags(QtCore.Qt.ItemFlag.ItemIsEnabled)
-            self.tbl_outputs.setItem(row, 0, item)
+            item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignVCenter | QtCore.Qt.AlignmentFlag.AlignLeft)
+            self.tbl_outputs.setItem(row, self.COL_NAME, item)
 
-            combo_fn = QtWidgets.QComboBox()
-            combo_fn.addItems(self._OUTPUT_FUNCTIONS)
-
+            # Columna: Duración (centrada)
             duration = QtWidgets.QSpinBox()
             duration.setRange(1, 900)
             duration.setValue(30)
             duration.setSuffix(" s")
+            duration.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+            self._place_centered_widget(self.tbl_outputs, row, self.COL_DUR, duration)
 
+            # Columna: Modo (centrado)
             mode = QtWidgets.QComboBox()
             mode.addItems(self._OUTPUT_MODES)
+            self._place_centered_widget(self.tbl_outputs, row, self.COL_MODE, mode)
 
+            # Columna: Auto-restaurar (checkbox centrado)
             auto_reset = QtWidgets.QCheckBox()
             auto_reset.setChecked(True)
-            auto_reset.setStyleSheet("margin-left:12px;")
+            self._place_centered_widget(self.tbl_outputs, row, self.COL_AUTORST, auto_reset)
 
-            self.tbl_outputs.setCellWidget(row, 1, combo_fn)
-            self.tbl_outputs.setCellWidget(row, 2, duration)
-            self.tbl_outputs.setCellWidget(row, 3, mode)
-            self.tbl_outputs.setCellWidget(row, 4, auto_reset)
-
-            self._output_rows.append({
-                "function": combo_fn,
-                "duration": duration,
-                "mode": mode,
-                "auto_reset": auto_reset,
-            })
-
+            # Guardar referencias + lógica
+            self._output_rows.append({"duration": duration, "mode": mode, "auto_reset": auto_reset})
+            mode.currentIndexChanged.connect(lambda _=None, r=row: self._on_mode_changed(r))
+            duration.valueChanged.connect(self._mark_dirty)
+            auto_reset.stateChanged.connect(self._mark_dirty)
             self.tbl_outputs.setRowHeight(row, 36)
 
-        card.body.addWidget(self.tbl_outputs)
-
+        # Controles de prueba rápida
         controls = QtWidgets.QHBoxLayout()
         controls.setSpacing(8)
         lbl_test = QtWidgets.QLabel("Probar salida")
@@ -213,234 +119,281 @@ class PageAutomation(QtWidgets.QWidget):
         self.combo_test_mode.addItems(["Activar", "Liberar"])
         self.btn_test_output = QtWidgets.QPushButton("Ejecutar prueba")
         self.btn_test_output.setProperty("ghost", True)
+        self.btn_test_output.clicked.connect(self._emit_test_output)
         controls.addStretch(1)
         controls.addWidget(lbl_test)
         controls.addWidget(self.combo_test_output)
         controls.addWidget(self.combo_test_mode)
         controls.addWidget(self.btn_test_output)
-        card.body.addLayout(controls)
 
+        # Botones aplicar / reset
         buttons = QtWidgets.QHBoxLayout()
         buttons.addStretch(1)
         self.btn_outputs_reset = QtWidgets.QPushButton("Restaurar predeterminado")
         self.btn_outputs_reset.setProperty("ghost", True)
         self.btn_outputs_apply = QtWidgets.QPushButton("Aplicar salidas")
         self.btn_outputs_apply.setProperty("primary", True)
-        buttons.addWidget(self.btn_outputs_reset)
-        buttons.addWidget(self.btn_outputs_apply)
-        card.body.addLayout(buttons)
-
-        root.addWidget(card)
-
         self.btn_outputs_reset.clicked.connect(self.reset_outputs)
         self.btn_outputs_apply.clicked.connect(lambda: self.sig_apply_outputs.emit(self.outputs()))
-        self.btn_test_output.clicked.connect(self._emit_test_output)
+        buttons.addWidget(self.btn_outputs_reset)
+        buttons.addWidget(self.btn_outputs_apply)
 
-    def _build_schedules_card(self, root: QtWidgets.QVBoxLayout) -> None:
-        card = Card("Temporizadores y zonas horarias")
-
-        self.tbl_schedules = QtWidgets.QTableWidget(0, 4)
-        self.tbl_schedules.setHorizontalHeaderLabels([
-            "Nombre",
-            "Dias",
-            "Inicio",
-            "Fin",
-        ])
-        self.tbl_schedules.verticalHeader().setVisible(False)
-        self.tbl_schedules.horizontalHeader().setStretchLastSection(True)
-        self.tbl_schedules.horizontalHeader().setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.Stretch)
-        self.tbl_schedules.horizontalHeader().setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-        self.tbl_schedules.horizontalHeader().setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-        self.tbl_schedules.horizontalHeader().setSectionResizeMode(3, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-        self.tbl_schedules.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
-        self.tbl_schedules.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
-        self.tbl_schedules.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.DoubleClicked)
-        card.body.addWidget(self.tbl_schedules)
-
-        toolbar = QtWidgets.QHBoxLayout()
-        self.btn_schedule_add = QtWidgets.QPushButton("Agregar ventana")
-        self.btn_schedule_add.setProperty("ghost", True)
-        self.btn_schedule_remove = QtWidgets.QPushButton("Eliminar seleccion")
-        self.btn_schedule_remove.setProperty("ghost", True)
-        toolbar.addWidget(self.btn_schedule_add)
-        toolbar.addWidget(self.btn_schedule_remove)
-        toolbar.addStretch(1)
-        card.body.addLayout(toolbar)
-
-        buttons = QtWidgets.QHBoxLayout()
-        buttons.addStretch(1)
-        self.btn_schedule_apply = QtWidgets.QPushButton("Aplicar horarios")
-        self.btn_schedule_apply.setProperty("primary", True)
-        buttons.addWidget(self.btn_schedule_apply)
+        card.body.addWidget(self.tbl_outputs)
+        card.body.addLayout(controls)
         card.body.addLayout(buttons)
-
         root.addWidget(card)
 
-        self.btn_schedule_add.clicked.connect(self._add_schedule_row)
-        self.btn_schedule_remove.clicked.connect(self._remove_selected_schedule)
-        self.btn_schedule_apply.clicked.connect(lambda: self.sig_apply_schedules.emit(self.schedules()))
+    # ──────────────────────────────────────────────────────────────
+    #  Card: Disparadores automáticos
+    # ──────────────────────────────────────────────────────────────
+    def _build_triggers_card(self, root: QtWidgets.QVBoxLayout) -> None:
+        card = Card("Disparadores automáticos")
 
-    # ------------------------------------------------------------------
-    def inputs(self) -> list[dict[str, object]]:
-        data: list[dict[str, object]] = []
-        for name, widgets in zip(self._INPUT_NAMES, self._input_rows):
-            combo = cast(QtWidgets.QComboBox, widgets["function"])
-            zone = cast(QtWidgets.QLineEdit, widgets["zone"])
-            delay = cast(QtWidgets.QSpinBox, widgets["delay"])
-            enabled = cast(QtWidgets.QCheckBox, widgets["enabled"])
+        # Columnas: Salida | RF1 | RF2 | RF3 | RF4 | Llamada
+        cols = 1 + len(self._TRIGGER_COLUMNS)
+        self.tbl_triggers = QtWidgets.QTableWidget(len(self._OUTPUT_NAMES), cols)
+        self.tbl_triggers.setHorizontalHeaderLabels(["Salida"] + self._TRIGGER_COLUMNS)
+        self.tbl_triggers.verticalHeader().setVisible(False)
+        self.tbl_triggers.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tbl_triggers.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.NoSelection)
+        self.tbl_triggers.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
+        self.tbl_triggers.setWordWrap(False)
 
-            data.append({
-                "name": name,
-                "function": combo.currentText(),
-                "zone": zone.text().strip(),
-                "delay": delay.value(),
-                "enabled": enabled.isChecked(),
-            })
-        return data
+        header = self.tbl_triggers.horizontalHeader()
+        header.setStretchLastSection(False)
+        header.setMinimumSectionSize(70)
+        header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Interactive)
 
-    def set_inputs(self, entries: list[dict[str, object]]) -> None:
-        mapping = {item.get("name"): item for item in entries if isinstance(item, dict)}
-        for name, widgets in zip(self._INPUT_NAMES, self._input_rows):
-            payload = mapping.get(name, {})
-            combo = cast(QtWidgets.QComboBox, widgets["function"])
-            zone = cast(QtWidgets.QLineEdit, widgets["zone"])
-            delay = cast(QtWidgets.QSpinBox, widgets["delay"])
-            enabled = cast(QtWidgets.QCheckBox, widgets["enabled"])
+        for row, name in enumerate(self._OUTPUT_NAMES):
+            # Nombre
+            item = QtWidgets.QTableWidgetItem(name)
+            item.setFlags(QtCore.Qt.ItemFlag.ItemIsEnabled)
+            item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignVCenter | QtCore.Qt.AlignmentFlag.AlignLeft)
+            self.tbl_triggers.setItem(row, 0, item)
 
-            function = str(payload.get("function", self._INPUT_FUNCTIONS[0]))
-            index = combo.findText(function)
-            combo.setCurrentIndex(index if index >= 0 else 0)
-            zone.setText(str(payload.get("zone", "")))
-            delay.setValue(int(payload.get("delay", 0)))
-            enabled.setChecked(bool(payload.get("enabled", True)))
+            # Checkboxes RF/Llamada (centrados)
+            row_widgets: Dict[str, QtWidgets.QWidget] = {}
+            for col, tname in enumerate(self._TRIGGER_COLUMNS, start=1):
+                cb = QtWidgets.QCheckBox()
+                self._place_centered_widget(self.tbl_triggers, row, col, cb)
+                cb.stateChanged.connect(self._mark_dirty)
+                row_widgets[tname] = cb
+            self.tbl_triggers.setRowHeight(row, 32)
+            self._trigger_rows.append(row_widgets)
 
-    def reset_inputs(self) -> None:
-        defaults = [
-            {"name": name, "function": self._INPUT_FUNCTIONS[min(idx, len(self._INPUT_FUNCTIONS) - 1)]}
-            for idx, name in enumerate(self._INPUT_NAMES)
+        # Botones aplicar / reset
+        buttons = QtWidgets.QHBoxLayout()
+        buttons.addStretch(1)
+        self.btn_triggers_reset = QtWidgets.QPushButton("Desactivar todos")
+        self.btn_triggers_reset.setProperty("ghost", True)
+        self.btn_triggers_apply = QtWidgets.QPushButton("Aplicar disparadores")
+        self.btn_triggers_apply.setProperty("primary", True)
+        self.btn_triggers_reset.clicked.connect(self.reset_triggers)
+        self.btn_triggers_apply.clicked.connect(lambda: self.sig_apply_triggers.emit(self.triggers()))
+        buttons.addWidget(self.btn_triggers_reset)
+        buttons.addWidget(self.btn_triggers_apply)
+
+        card.body.addWidget(self.tbl_triggers)
+        card.body.addLayout(buttons)
+        root.addWidget(card)
+
+    # ──────────────────────────────────────────────────────────────
+    #  Barra inferior: Importar/Exportar / Estado
+    # ──────────────────────────────────────────────────────────────
+    def _build_toolbar(self, root: QtWidgets.QVBoxLayout) -> None:
+        
+        row = QtWidgets.QHBoxLayout()
+        row.setSpacing(2)
+
+        self.lbl_dirty = QtWidgets.QLabel("")  # “Cambios sin aplicar…”
+        self.lbl_dirty.setProperty("muted", True)
+
+        btn_export = QtWidgets.QPushButton("Exportar JSON")
+        btn_import = QtWidgets.QPushButton("Importar JSON")
+        btn_export.clicked.connect(lambda: self.sig_import_export.emit("export", {"outputs": self.outputs(), "triggers": self.triggers()}))
+        btn_import.clicked.connect(lambda: self.sig_import_export.emit("import", None))
+
+        row.addWidget(self.lbl_dirty)
+        row.addStretch(1)
+        row.addWidget(btn_import)
+        row.addWidget(btn_export)
+        root.addLayout(row)
+
+    # ──────────────────────────────────────────────────────────────
+    #  Helpers de distribución / centrado
+    # ──────────────────────────────────────────────────────────────
+    def _place_centered_widget(self, table: QtWidgets.QTableWidget, row: int, col: int, w: QtWidgets.QWidget) -> None:
+        """Centra un widget dentro de la celda usando un contenedor."""
+        container = QtWidgets.QWidget()
+        lay = QtWidgets.QHBoxLayout(container)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+        lay.addStretch(1)
+        lay.addWidget(w)
+        lay.addStretch(1)
+        table.setCellWidget(row, col, container)
+
+    def eventFilter(self, obj: QtCore.QObject, ev: QtCore.QEvent) -> bool:
+        """Recalcula anchos cuando se redimensiona el viewport."""
+        if obj is self.tbl_outputs.viewport() and ev.type() == QtCore.QEvent.Type.Resize:
+            self._autosize_outputs_columns()
+        elif obj is self.tbl_triggers.viewport() and ev.type() == QtCore.QEvent.Type.Resize:
+            self._autosize_triggers_columns()
+        return super().eventFilter(obj, ev)
+
+    def _autosize_outputs_columns(self) -> None:
+        """Salida 18% | Duración 16% | Modo 46% | Auto 20% (con mínimos)."""
+        total = self.tbl_outputs.viewport().width()
+        widths = [
+            int(total * 0.18),  # Salida
+            int(total * 0.16),  # Duración
+            int(total * 0.46),  # Modo
+            max(90, int(total * 0.20)),  # Auto-restaurar
         ]
-        self.set_inputs(defaults)
+        # mínimos para legibilidad
+        widths[0] = max(widths[0], 110)
+        widths[1] = max(widths[1], 120)
+        widths[2] = max(widths[2], 220)
+        for i, w in enumerate(widths):
+            self.tbl_outputs.setColumnWidth(i, w)
 
-    def outputs(self) -> list[dict[str, object]]:
-        data: list[dict[str, object]] = []
-        for name, widgets in zip(self._OUTPUT_NAMES, self._output_rows):
-            combo_fn = cast(QtWidgets.QComboBox, widgets["function"])
-            duration = cast(QtWidgets.QSpinBox, widgets["duration"])
-            mode = cast(QtWidgets.QComboBox, widgets["mode"])
-            auto_reset = cast(QtWidgets.QCheckBox, widgets["auto_reset"])
-
-            data.append({
-                "name": name,
-                "function": combo_fn.currentText(),
-                "duration": duration.value(),
-                "mode": mode.currentText(),
-                "auto_reset": auto_reset.isChecked(),
-            })
-        return data
-
-    def set_outputs(self, entries: list[dict[str, object]]) -> None:
-        mapping = {item.get("name"): item for item in entries if isinstance(item, dict)}
-        for name, widgets in zip(self._OUTPUT_NAMES, self._output_rows):
-            payload = mapping.get(name, {})
-            combo_fn = cast(QtWidgets.QComboBox, widgets["function"])
-            duration = cast(QtWidgets.QSpinBox, widgets["duration"])
-            mode = cast(QtWidgets.QComboBox, widgets["mode"])
-            auto_reset = cast(QtWidgets.QCheckBox, widgets["auto_reset"])
-
-            function = str(payload.get("function", self._OUTPUT_FUNCTIONS[0]))
-            idx_fn = combo_fn.findText(function)
-            combo_fn.setCurrentIndex(idx_fn if idx_fn >= 0 else 0)
-            duration.setValue(int(payload.get("duration", 30)))
-            mode_val = str(payload.get("mode", self._OUTPUT_MODES[0]))
-            idx_mode = mode.findText(mode_val)
-            mode.setCurrentIndex(idx_mode if idx_mode >= 0 else 0)
-            auto_reset.setChecked(bool(payload.get("auto_reset", True)))
-
-    def reset_outputs(self) -> None:
-        defaults = [
-            {
-                "name": name,
-                "function": self._OUTPUT_FUNCTIONS[min(idx, len(self._OUTPUT_FUNCTIONS) - 1)],
-                "duration": 30,
-            }
-            for idx, name in enumerate(self._OUTPUT_NAMES)
+    def _autosize_triggers_columns(self) -> None:
+        """Salida 22% | RF1..RF4 12% c/u | Llamada 30% (con mínimos)."""
+        total = self.tbl_triggers.viewport().width()
+        base = [
+            int(total * 0.20),  # Salida
+            int(total * 0.15),  # RF1
+            int(total * 0.15),  # RF2
+            int(total * 0.15),  # RF3
+            int(total * 0.15),  # RF4
+            int(total * 0.20),  # Llamada
         ]
-        self.set_outputs(defaults)
+        mins = [120, 80, 80, 80, 80, 120]
+        for i, w in enumerate(base):
+            self.tbl_triggers.setColumnWidth(i, max(w, mins[i]))
 
-    def schedules(self) -> list[dict[str, object]]:
-        results: list[dict[str, object]] = []
-        for row in range(self.tbl_schedules.rowCount()):
-            name_item = self.tbl_schedules.item(row, 0)
-            day_widget = self.tbl_schedules.cellWidget(row, 1)
-            start_widget = self.tbl_schedules.cellWidget(row, 2)
-            end_widget = self.tbl_schedules.cellWidget(row, 3)
+    # ──────────────────────────────────────────────────────────────
+    #  Lógica de UI
+    # ──────────────────────────────────────────────────────────────
+    def _on_mode_changed(self, row: int) -> None:
+        """Habilita/deshabilita controles según el Modo."""
+        widgets = self._output_rows[row]
+        mode = cast(QtWidgets.QComboBox, widgets["mode"]).currentText()
+        duration = cast(QtWidgets.QSpinBox, widgets["duration"])
+        auto_reset = cast(QtWidgets.QCheckBox, widgets["auto_reset"])
 
-            name = name_item.text().strip() if name_item else f"Horario {row + 1}"
-            days = day_widget.currentText() if isinstance(day_widget, QtWidgets.QComboBox) else ""
-            start = start_widget.time().toString("HH:mm") if isinstance(start_widget, QtWidgets.QTimeEdit) else "00:00"
-            end = end_widget.time().toString("HH:mm") if isinstance(end_widget, QtWidgets.QTimeEdit) else "23:59"
+        if mode == "Pulso":
+            duration.setEnabled(True)
+            auto_reset.setEnabled(False)
+            auto_reset.setChecked(True)   # irrelevante en pulso
+            auto_reset.setToolTip("No aplica en Pulso.")
+        elif mode == "Sostenido":
+            duration.setEnabled(False)
+            auto_reset.setEnabled(True)
+            auto_reset.setToolTip("Si está activo, el sistema puede revertir a OFF automáticamente.")
+        else:  # Seguimiento de evento
+            duration.setEnabled(False)
+            auto_reset.setEnabled(False)
+            auto_reset.setChecked(True)
+            auto_reset.setToolTip("No aplica en Seguimiento de evento.")
 
-            results.append({
-                "name": name,
-                "days": days,
-                "start": start,
-                "end": end,
-            })
-        return results
+        self._mark_dirty()
 
-    def set_schedules(self, items: list[dict[str, object]]) -> None:
-        self.tbl_schedules.setRowCount(0)
-        for entry in items:
-            self._add_schedule_row(entry)
+    def _mark_dirty(self, *_args) -> None:
+        self._dirty = True
+        self.lbl_dirty.setText("Cambios sin aplicar…")
 
-    def reset_schedules(self) -> None:
-        defaults = [
-            {"name": "Horario diurno", "days": "Lunes a viernes", "start": "06:00", "end": "22:00"},
-            {"name": "Horario nocturno", "days": "Siempre", "start": "22:00", "end": "06:00"},
-        ]
-        self.set_schedules(defaults)
+    def _clear_dirty(self) -> None:
+        self._dirty = False
+        self.lbl_dirty.setText("")
 
-    # ------------------------------------------------------------------
     def _emit_test_output(self) -> None:
         name = self.combo_test_output.currentText()
         action = self.combo_test_mode.currentText()
         if name:
             self.sig_trigger_output.emit(name, action)
 
-    def _add_schedule_row(self, preset: dict[str, object] | None = None) -> None:
-        row = self.tbl_schedules.rowCount()
-        self.tbl_schedules.insertRow(row)
+    # ──────────────────────────────────────────────────────────────
+    #  Serialización
+    # ──────────────────────────────────────────────────────────────
+    def outputs(self) -> List[Dict[str, Any]]:
+        data: List[Dict[str, Any]] = []
+        for name, widgets in zip(self._OUTPUT_NAMES, self._output_rows):
+            duration = cast(QtWidgets.QSpinBox, widgets["duration"])
+            mode = cast(QtWidgets.QComboBox, widgets["mode"])
+            auto_reset = cast(QtWidgets.QCheckBox, widgets["auto_reset"])
+            data.append({
+                "name": name,
+                "duration": duration.value(),
+                "mode": mode.currentText(),
+                "auto_reset": auto_reset.isChecked(),
+            })
+        self._clear_dirty()
+        return data
 
-        name = str((preset or {}).get("name", f"Horario {row + 1}"))
-        days = str((preset or {}).get("days", self._SCHEDULE_DAY_OPTIONS[0]))
-        start = str((preset or {}).get("start", "00:00"))
-        end = str((preset or {}).get("end", "23:59"))
+    def set_outputs(self, entries: List[Dict[str, Any]]) -> None:
+        mapping = {str(item.get("name")): item for item in entries if isinstance(item, dict)}
+        for r, (name, widgets) in enumerate(zip(self._OUTPUT_NAMES, self._output_rows)):
+            payload = mapping.get(name, {})
+            duration = cast(QtWidgets.QSpinBox, widgets["duration"])
+            mode = cast(QtWidgets.QComboBox, widgets["mode"])
+            auto_reset = cast(QtWidgets.QCheckBox, widgets["auto_reset"])
 
-        name_item = QtWidgets.QTableWidgetItem(name)
-        self.tbl_schedules.setItem(row, 0, name_item)
+            duration.setValue(int(payload.get("duration", 30)))
+            mode_val = str(payload.get("mode", self._OUTPUT_MODES[0]))
+            idx_mode = mode.findText(mode_val)
+            mode.setCurrentIndex(idx_mode if idx_mode >= 0 else 0)
+            auto_reset.setChecked(bool(payload.get("auto_reset", True)))
 
-        days_combo = QtWidgets.QComboBox()
-        days_combo.addItems(self._SCHEDULE_DAY_OPTIONS)
-        idx_days = days_combo.findText(days)
-        days_combo.setCurrentIndex(idx_days if idx_days >= 0 else 0)
-        self.tbl_schedules.setCellWidget(row, 1, days_combo)
+            self._on_mode_changed(r)
 
-        start_time = QtWidgets.QTimeEdit()
-        start_time.setDisplayFormat("HH:mm")
-        start_time.setTime(QtCore.QTime.fromString(start, "HH:mm"))
-        self.tbl_schedules.setCellWidget(row, 2, start_time)
+        self._clear_dirty()
 
-        end_time = QtWidgets.QTimeEdit()
-        end_time.setDisplayFormat("HH:mm")
-        end_time.setTime(QtCore.QTime.fromString(end, "HH:mm"))
-        self.tbl_schedules.setCellWidget(row, 3, end_time)
+    def reset_outputs(self) -> None:
+        defaults = []
+        for name in self._OUTPUT_NAMES:
+            defaults.append({
+                "name": name,
+                "duration": 30,
+                "mode": self._OUTPUT_MODES[0],  # Pulso
+                "auto_reset": True,
+            })
+        self.set_outputs(defaults)
 
-        self.tbl_schedules.setRowHeight(row, 34)
+    # ──────────────────────────────────────────────────────────────
+    #  Triggers
+    # ──────────────────────────────────────────────────────────────
+    def triggers(self) -> List[Dict[str, Any]]:
+        data: List[Dict[str, Any]] = []
+        for row, name in enumerate(self._OUTPUT_NAMES):
+            widgets = self._trigger_rows[row]
+            entry = {"name": name, "triggers": {}}
+            for tname in self._TRIGGER_COLUMNS:
+                cb = cast(QtWidgets.QCheckBox, widgets[tname])
+                entry["triggers"][tname] = cb.isChecked()
+            data.append(entry)
+        self._clear_dirty()
+        return data
 
-    def _remove_selected_schedule(self) -> None:
-        row = self.tbl_schedules.currentRow()
-        if row >= 0:
-            self.tbl_schedules.removeRow(row)
+    def set_triggers(self, entries: List[Dict[str, Any]]) -> None:
+        mapping = {str(item.get("name")): item for item in entries if isinstance(item, dict)}
+        for row, name in enumerate(self._OUTPUT_NAMES):
+            payload = mapping.get(name, {})
+            widgets = self._trigger_rows[row]
+            trigs = payload.get("triggers", {}) if isinstance(payload.get("triggers"), dict) else {}
+            for tname in self._TRIGGER_COLUMNS:
+                cb = cast(QtWidgets.QCheckBox, widgets[tname])
+                cb.setChecked(bool(trigs.get(tname, False)))
+        self._clear_dirty()
+
+    def reset_triggers(self) -> None:
+        defaults = []
+        for name in self._OUTPUT_NAMES:
+            defaults.append({
+                "name": name,
+                "triggers": {"RF1": False, "RF2": False, "RF3": False, "RF4": False, "Llamada": False}
+            })
+        self.set_triggers(defaults)
 
 
 __all__ = ["PageAutomation"]

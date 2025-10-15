@@ -59,7 +59,6 @@ class DeviceController(QtCore.QObject):
 
         automation = self.win.page("Automatizacion")
         if automation:
-            automation.sig_apply_inputs.connect(self._apply_inputs)
             automation.sig_apply_outputs.connect(self._apply_outputs)
             automation.sig_apply_schedules.connect(self._apply_schedules)
             automation.sig_trigger_output.connect(self._trigger_output)
@@ -174,9 +173,6 @@ class DeviceController(QtCore.QObject):
             self._log(f"[error] {exc}")
 
     # Automatización
-    def _apply_inputs(self, rows: list[dict[str, Any]]) -> None:
-        self._send("IO.INPUT.MAP", [], {"MAP": json.dumps(rows)})
-
     def _apply_outputs(self, rows: list[dict[str, Any]]) -> None:
         self._send("IO.OUTPUT.MAP", [], {"MAP": json.dumps(rows)})
 
