@@ -15,7 +15,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing aids
 try:
     from app.__version__ import __title__, __version__
 except Exception:
-    __title__, __version__ = "Linseg QC1", "0.0.0"
+    __title__, __version__ = "LS QC1", "0.0.0"
 
 
 def _application_root() -> Path:
@@ -25,7 +25,7 @@ def _application_root() -> Path:
     return Path(__file__).resolve().parent
 
 
-def _set_windows_app_id(app_id: str = "Linseg.QC1") -> None:
+def _set_windows_app_id(app_id: str = "LS.QC1") -> None:
     if os.name != "nt":
         return
     try:
@@ -69,7 +69,7 @@ def _normalize_argv(argv: Iterable[str] | None) -> list[str]:
 
 
 def _apply_app_metadata(app: QtWidgets.QApplication) -> None:
-    app.setOrganizationName("Linseg")
+    app.setOrganizationName("LS")
     app.setApplicationName(__title__)
     app.setApplicationVersion(__version__)
 
@@ -122,7 +122,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         sys.path.insert(0, str(project_root))
     os.chdir(root)
 
-    _set_windows_app_id("Linseg.QC1")
+    _set_windows_app_id("LS.QC1")
     _install_excepthook()
     _configure_high_dpi()
 

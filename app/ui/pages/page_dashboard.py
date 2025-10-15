@@ -74,7 +74,7 @@ class PageDashboard(QtWidgets.QWidget):
         grid = QtWidgets.QGridLayout()
         grid.setVerticalSpacing(8)
         data = [
-            ("MQTT", "Linseg Cloud", "En linea"),
+            ("MQTT", "LS Cloud", "En linea"),
             ("WhatsApp", "Grupo Seguridad", "Listo"),
             ("App movil", "12 usuarios", "Sincronizado"),
             ("Ultimo heartbeat", "09:48"),

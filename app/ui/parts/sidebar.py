@@ -9,7 +9,7 @@ class SideBar(QtWidgets.QFrame):
     """
     pageRequested = QtCore.pyqtSignal(str)
 
-    def __init__(self, pages: list[str], app_name: str = "Linseg QC1", version: str = "v1.0.0"):
+    def __init__(self, pages: list[str], app_name: str = "LS QC1", version: str = "v1.0.0"):
         super().__init__()
         self.setObjectName("SideBar")
 

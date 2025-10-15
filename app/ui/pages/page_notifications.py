@@ -48,7 +48,7 @@ class PageNotifications(QtWidgets.QWidget):
         grid.setVerticalSpacing(10)
 
         self.chk_whatsapp = QtWidgets.QCheckBox("WhatsApp (via servidor MQTT)")
-        self.chk_mobile = QtWidgets.QCheckBox("App movil Linseg")
+        self.chk_mobile = QtWidgets.QCheckBox("App movil LS")
         self.chk_sms = QtWidgets.QCheckBox("SMS de respaldo")
         self.chk_email = QtWidgets.QCheckBox("Correo electronico")
         self.chk_voice = QtWidgets.QCheckBox("Llamada de voz automatizada")
