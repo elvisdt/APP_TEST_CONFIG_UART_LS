@@ -33,10 +33,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self._pages = [
             PageSpec("Dashboard", PageDashboard),
             PageSpec("Contactos", PageContacts),
-            PageSpec("Automatizacion", PageAutomation),
+            PageSpec("I/O", PageAutomation),
             PageSpec("Audio", PageAudio),
             PageSpec("Servidor", PageServer),
-            PageSpec("Notificaciones", PageNotifications),
+            # PageSpec("Notificaciones", PageNotifications),
             PageSpec("Logs", PageLogs),
             # PageSpec("Sistema", PageSystem),
         ]
