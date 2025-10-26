@@ -6,7 +6,7 @@ from typing import Any
 
 from PyQt6 import QtCore, QtWidgets
 
-from app.comm import SerialCommandService, SerialManager
+from app.comm import SerialManager
 from app.core.settings import Settings
 from app.ui.main_window import MainWindow
 
@@ -20,19 +20,12 @@ class DeviceController(QtCore.QObject):
         self.settings = settings
 
         self.serial = SerialManager()
-        self.service = SerialCommandService(
-            self.serial,
-            model=settings.device_model,
-            device_id=settings.device_id,
-            password_provider=lambda spec: settings.device_password if spec.requires_password else None,
-            timeout_ms=60_000,
-        )
+        # Comandos serial deshabilitados temporalmente mientras se ajusta la UI.
+        self._commands_enabled = False
 
         self.logs = None
         self._bind_topbar()
         self._bind_pages()
-        self._bind_service_signals()
-
         self.serial.ports_updated.connect(self._on_ports_updated)
         self.serial.connection_changed.connect(self._on_connection_changed)
         self.serial.error_occurred.connect(self._on_transport_error)
@@ -56,12 +49,17 @@ class DeviceController(QtCore.QObject):
         logs_page = self.win.page("Logs")
         if logs_page and hasattr(logs_page, "append_line"):
             self.logs = logs_page
+            if hasattr(logs_page, "sig_send_command"):
+                logs_page.sig_send_command.connect(self._send_manual_command)
 
         automation = self.win.page("Automatizacion")
         if automation:
-            automation.sig_apply_outputs.connect(self._apply_outputs)
-            automation.sig_apply_schedules.connect(self._apply_schedules)
-            automation.sig_trigger_output.connect(self._trigger_output)
+            if hasattr(automation, "sig_apply_outputs"):
+                automation.sig_apply_outputs.connect(self._apply_outputs)
+            if hasattr(automation, "sig_apply_triggers"):
+                automation.sig_apply_triggers.connect(self._apply_triggers)
+            if hasattr(automation, "sig_trigger_output"):
+                automation.sig_trigger_output.connect(self._trigger_output)
 
         audio = self.win.page("Audio")
         if audio:
@@ -90,14 +88,10 @@ class DeviceController(QtCore.QObject):
         contacts = self.win.page("Contactos")
         if contacts and hasattr(contacts, "btn_save"):
             contacts.btn_save.clicked.connect(lambda: self._push_contacts(contacts))
-
-    def _bind_service_signals(self) -> None:
-        self.service.response_received.connect(self._on_response)
-        self.service.packet_received.connect(self._on_packet)
-        self.service.parse_failed.connect(self._on_parse_failed)
-        self.service.transport_error.connect(self._on_transport_error)
-        self.service.raw_sent.connect(self._on_raw_sent)
-        self.service.command_timed_out.connect(self._on_command_timeout)
+        if contacts and hasattr(contacts, "sig_rf_scan"):
+            contacts.sig_rf_scan.connect(self._scan_rf_remote)
+        if contacts and hasattr(contacts, "sig_rf_link"):
+            contacts.sig_rf_link.connect(self._link_rf_contact)
 
     # ------------------------------------------------------------------
     def _on_connect_requested(self, port: str) -> None:
@@ -135,46 +129,21 @@ class DeviceController(QtCore.QObject):
     def _on_transport_error(self, message: str, port: str) -> None:
         self._log(f"[serial] {message} ({port})")
 
-    def _on_raw_sent(self, raw: str) -> None:
-        self._log(f"-> {raw.strip()}")
-
-    def _on_response(self, envelope: ResponseEnvelope) -> None:
-        if envelope.is_error():
-            detail = envelope.error_detail()
-            if detail:
-                code, msg = detail
-                self._log(f"<- ERR seq={envelope.sequence} code={code} msg={msg}")
-            else:
-                extra = " ".join(envelope.fields)
-                self._log(f"<- ERR seq={envelope.sequence} {extra}")
-        else:
-            payload = ", ".join(envelope.fields)
-            self._log(f"<- OK seq={envelope.sequence} {payload}")
-
-    def _on_packet(self, packet: qc1_proto.QC1Packet) -> None:
-        self._log(f"<- PKT {packet.hdr.cmd} seq={packet.hdr.seq}")
-
-    def _on_parse_failed(self, message: str) -> None:
-        self._log(f"[parse] {message}")
-
-    def _on_command_timeout(self, pending: PendingCommand) -> None:
-        seq = pending.frame.header.sequence
-        cmd = pending.frame.spec.name
-        self._log(f"[timeout] {cmd} seq={seq} sin respuesta tras 60s")
-
     # ------------------------------------------------------------------
     def _send_simple(self, name: str) -> None:
         self._send(name, [], {})
 
     def _send(self, command_name: str, positional: list[str], keyword: dict[str, str]) -> None:
-        try:
-            self.service.send(command_name, positional=positional, keyword=keyword)
-        except Exception as exc:
-            self._log(f"[error] {exc}")
+        if not self._commands_enabled:
+            self._log(f"[serial] Comando '{command_name}' omitido (serial deshabilitado).")
+            return
 
     # Automatización
     def _apply_outputs(self, rows: list[dict[str, Any]]) -> None:
         self._send("IO.OUTPUT.MAP", [], {"MAP": json.dumps(rows)})
+
+    def _apply_triggers(self, rows: list[dict[str, Any]]) -> None:
+        self._send("IO.TRIGGER.SET", [], {"LIST": json.dumps(rows)})
 
     def _apply_schedules(self, sched: list[dict[str, Any]]) -> None:
         self._send("IO.SCHEDULE.SET", [], {"LIST": json.dumps(sched)})
@@ -221,6 +190,19 @@ class DeviceController(QtCore.QObject):
         numbers = page.read_auth()
         self._send("CONTACT.AUTH.SET", [], {"LIST": ";".join(numbers)})
 
+    def _scan_rf_remote(self) -> None:
+        self._log("[rf] Escaneo solicitado.")
+        page = self.win.page("Contactos")
+        if page and hasattr(page, "rf_scan_finished"):
+            page.rf_scan_finished(False, "Función no disponible con serial deshabilitado.")
+
+    def _link_rf_contact(self, rf_id: str, contact: str) -> None:
+        self._log(f"[rf] Vincular {rf_id} -> {contact}")
+        self._send("RF.CONTACT.LINK", [rf_id], {"CONTACT": contact})
+        page = self.win.page("Contactos")
+        if page and hasattr(page, "append_rf_entry"):
+            page.append_rf_entry(rf_id, contact)
+
     # Servidor
     def _save_server_form(self, page) -> None:
         fields = self._extract_form(page)
@@ -245,6 +227,20 @@ class DeviceController(QtCore.QObject):
         for key, widget in zip(mapping, line_edits):
             fields[key] = widget.text().strip()
         return fields
+
+    # ------------------------------------------------------------------
+    def _send_manual_command(self, command: str) -> None:
+        raw = command.strip()
+        if not raw:
+            return
+        if not self.serial.is_connected():
+            self._log("[serial] No hay un puerto conectado; comando ignorado.")
+            return
+        self._log(f"[serial] >> {raw}")
+        try:
+            self.serial.send_data_str(raw)
+        except Exception as exc:
+            self._log(f"[serial] Error enviando '{raw}': {exc}")
 
     # ------------------------------------------------------------------
     def _log(self, text: str) -> None:
