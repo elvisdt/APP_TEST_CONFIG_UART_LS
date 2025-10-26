@@ -175,7 +175,7 @@ COMMANDS: Dict[str, CommandSpec] = {
     # --- Servidor -------------------------------------------------------------
     "SRV.MQTT.SET": CommandSpec(
         name="SRV.MQTT.SET",
-        description="Configura parámetros MQTT (broker Linseg).",
+        description="Configura parámetros MQTT (broker LS).",
         category="server",
         positional=(),
         keyword=(

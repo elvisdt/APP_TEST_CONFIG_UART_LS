@@ -1,4 +1,4 @@
-__title__       = "Alarm Configurator-Linseg"
+__title__       = "Alarm Configurator-LS"
 __version__     = "1.0.0"
 __author__      = "elvisdt - LABOTEC"
 __description__ = "Aplicación de configuración y diagnóstico para módulos QC1"

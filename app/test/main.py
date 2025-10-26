@@ -1,7 +1,7 @@
 """
 PyQt6 — UI base moderna (modular, sin lógica)
 - Diseño: sidebar + topbar + páginas en QStackedWidget
-- Estilo: QSS (paleta en Linseg Perú: rojo #C1121F, crema #F6E7D8, gris #1E1E1E)
+- Estilo: QSS (paleta en LS Perú: rojo #C1121F, crema #F6E7D8, gris #1E1E1E)
 - Modular: clases separadas para cada página; fácil de extraer a archivos
 - Sin dependencias externas (solo PyQt6)
 - Ready para integrar qc1_proto.py y backend serial posteriormente
@@ -22,7 +22,7 @@ from PyQt6 import QtWidgets, QtGui, QtCore
 # --------------------
 @dataclass
 class Palette:
-    red: str = "#C1121F"     # Linseg red
+    red: str = "#C1121F"     # LS red
     cream: str = "#F6E7D8"   # soft cream accent
     dark: str = "#1E1E1E"    # near-black bg
     mid: str = "#2A2A2A"     # cards / surfaces
@@ -316,7 +316,7 @@ class PageLogs(QtWidgets.QWidget):
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Configurador QC1 — Linseg")
+        self.setWindowTitle("Configurador QC1 — LS")
         self.resize(1150, 720)
         self.setWindowIcon(QtGui.QIcon())
 
@@ -370,7 +370,7 @@ class MainWindow(QtWidgets.QMainWindow):
         side = QtWidgets.QFrame(); side.setObjectName("SideBar")
         lay = QtWidgets.QVBoxLayout(side)
         lay.setContentsMargins(12,12,12,12); lay.setSpacing(8)
-        logo = QtWidgets.QLabel("🛡️ Linseg")
+        logo = QtWidgets.QLabel("🛡️ LS")
         logo.setStyleSheet("color: white; font-weight:700; font-size:16px;")
         lay.addWidget(logo)
         lay.addWidget(VSpacer(8))

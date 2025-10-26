@@ -13,7 +13,7 @@ Este documento resume la estructura propuesta para cubrir la configuracion integ
 
 ## Lineamientos de diseno
 - **Cards reutilizables** (`app/ui/widgets/card.py`) para agrupar zonas logicas (estado, acciones, formularios).
-- **Paleta moderna** (`app/ui/styles/styles.py`) con acentos azul Linseg, fondos claros y controles redondeados.
+- **Paleta moderna** (`app/ui/styles/styles.py`) con acentos azul LS, fondos claros y controles redondeados.
 - **Acciones contextualizadas**: Cada pagina ofrece botones de "Aplicar" y "Restaurar" para alinearse con flujos tipo Teltonika/Queclink.
 - **Datos pre-cargados**: Se ofrecen placeholders coherentes (nombres de entradas, grupos, horarios) para acelerar pruebas en campo.
 
